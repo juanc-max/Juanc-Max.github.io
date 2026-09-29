@@ -210,6 +210,12 @@
   .add-btn:hover{background:var(--violet-dim);}
   .detail-btn{background:transparent; border:1px solid var(--line); color:var(--text-dim);}
   .detail-btn:hover{border-color:var(--text-dim); color:var(--text);}
+  .telegram-btn{
+    display:flex; align-items:center; justify-content:center; gap:6px;
+    margin:0 18px 18px; padding:10px; border-radius:10px; font-size:0.85rem; font-weight:700;
+    background:#229ED9; color:#fff; text-decoration:none; transition:background .15s;
+  }
+  .telegram-btn:hover{background:#1c87ba;}
 
   .assistant{
     background:var(--surface); border:1px solid var(--line); border-radius:24px;
@@ -696,6 +702,12 @@ const VOLUME_THRESHOLD = 12;
 const VOLUME_DISCOUNT = 0.15;
 // Reemplaza este número por el WhatsApp real de atención al cliente de la tienda.
 const STORE_WHATSAPP = '+57 300 000 0000';
+// TODO: reemplaza esto por el username real de tu bot una vez lo crees con @BotFather
+const TELEGRAM_BOT_USERNAME = 'PulseGear_asistente_bot';
+function telegramLink(p){
+  const texto = encodeURIComponent(`Hola, tengo una pregunta sobre ${p.name} (Ref. ${p.sku})`);
+  return `https://t.me/${TELEGRAM_BOT_USERNAME}?text=${texto}`;
+}
 
 function imgUrl(p, w=400, h=300){
   if(p.photoUrl) return p.photoUrl;
@@ -730,26 +742,27 @@ let cart = {}; // {productId: qty}
 
 /* =========================================================
    STORAGE HELPERS (persisten usuario/contraseña entre sesiones)
+   Usan localStorage del navegador: funciona en cualquier hosting
+   (Netlify, archivo local, etc.) y guarda los datos en ESTE navegador
+   de ESTE computador — no se comparte entre dispositivos distintos.
    ========================================================= */
+const LS_PREFIX = 'pulsegear:';
+
 async function storageGet(key){
   try{
-    const r = await window.storage.get(key, false);
-    return r ? JSON.parse(r.value) : null;
+    const raw = localStorage.getItem(LS_PREFIX + key);
+    return raw ? JSON.parse(raw) : null;
   }catch(e){ return null; }
 }
 async function storageSet(key, value){
-  try{ await window.storage.set(key, JSON.stringify(value), false); }
+  try{ localStorage.setItem(LS_PREFIX + key, JSON.stringify(value)); }
   catch(e){ console.error('storage set failed', e); }
 }
 async function storageGetShared(key){
-  try{
-    const r = await window.storage.get(key, true);
-    return r ? JSON.parse(r.value) : null;
-  }catch(e){ return null; }
+  return storageGet(key);
 }
 async function storageSetShared(key, value){
-  try{ await window.storage.set(key, JSON.stringify(value), true); }
-  catch(e){ console.error('storage set (shared) failed', e); }
+  return storageSet(key, value);
 }
 async function loadStock(){
   for(const p of PRODUCTS){
@@ -759,9 +772,16 @@ async function loadStock(){
   }
 }
 async function storageListUsers(){
+  return storageListKeys('user:');
+}
+async function storageListKeys(prefix){
   try{
-    const r = await window.storage.list('user:', false);
-    return r && r.keys ? r.keys : [];
+    const keys = [];
+    for(let i=0; i<localStorage.length; i++){
+      const k = localStorage.key(i);
+      if(k && k.startsWith(LS_PREFIX + prefix)) keys.push(k.slice(LS_PREFIX.length));
+    }
+    return keys;
   }catch(e){ return []; }
 }
 
@@ -983,6 +1003,7 @@ function renderProducts(filter='todos'){
         <button class="detail-btn" onclick="openDetail('${p.id}')">Ver detalle</button>
         <button class="add-btn" onclick="addToCart('${p.id}')">Agregar</button>
       </div>
+      <a class="telegram-btn" href="${telegramLink(p)}" target="_blank" rel="noopener">📩 Consultar por Telegram</a>
     `;
     grid.appendChild(card);
   });
@@ -1014,6 +1035,7 @@ function openDetail(id){
       <div><b>-${VOLUME_DISCOUNT*100}%</b>Desde ${VOLUME_THRESHOLD} uds</div>
     </div>
     <button class="btn btn-primary" style="width:100%" onclick="addToCart('${p.id}'); closeDetail();">Agregar al carrito</button>
+    <a class="telegram-btn" style="width:100%; margin:8px 0 0;" href="${telegramLink(p)}" target="_blank" rel="noopener">📩 Consultar por Telegram</a>
     <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="closeDetail()">Cerrar</button>
   `;
   document.getElementById('detailModal').classList.add('show');
@@ -1220,8 +1242,7 @@ async function confirmPayment(e){
 async function openAdminModal(){
   if(!currentUser || currentUser.role !== 'admin') return;
   const userKeys = await storageListUsers();
-  const orderKeysResult = await (async () => { try{ return await window.storage.list('orders:', false); }catch(e){ return null; } })();
-  const orderKeys = orderKeysResult && orderKeysResult.keys ? orderKeysResult.keys : [];
+  const orderKeys = await storageListKeys('orders:');
 
   let totalRevenue = 0;
   let ordersHtml = '';
